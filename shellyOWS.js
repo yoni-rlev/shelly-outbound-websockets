@@ -102,7 +102,6 @@ class ShellyOWS {
                         }
                     }
 
-
                     // proceed to call handlers
                     if (this.handlers[method]) {
                         this._callHandler(method, message.src, params, webSocket);
@@ -110,9 +109,15 @@ class ShellyOWS {
                 }
                 else if (message.result) {
                     if (message.id && this._requests[message.id]) {
-                        this._requests[message.id](message.result);
+                        this._requests[message.id].resolve(message.result);
+                        delete this._requests[message.id];
                     }
-                    // TODO: log error/warning?
+                }
+                else if (message.error) {
+                    if (message.id && this._requests[message.id]) {
+                        this._requests[message.id].reject(message.error);
+                        delete this._requests[message.id];
+                    }
                 }
             });
 
@@ -184,29 +189,33 @@ class ShellyOWS {
      * @param {string|WebSocket} deviceIdOrWebSocket
      * @param {string} method
      * @param {Object} params
+     * @param {Object} auth
      * @returns {Promise<never>|Promise<unknown>}
      */
-    call(deviceIdOrWebSocket, method, params) {
+    call(deviceIdOrWebSocket, method, params, auth) {
         let webSocket = deviceIdOrWebSocket instanceof WebSocket ?
             deviceIdOrWebSocket : this._clients[deviceIdOrWebSocket];
 
         if (!webSocket) {
-            // console.error(this._clients);
-            return Promise.reject(404);
+            return Promise.reject(new Error("Client not connected"));
         }
 
         return new Promise((res, rej) => {
             let id = this._idx++;
-            this._requests[id] = (response) => {
-                res(response);
-            };
-            // todo: timeout
+            
+            // שומרים את פונקציות ההצלחה והכישלון כדי שנוכל להפעיל אותן כשהתשובה תחזור
+            this._requests[id] = { resolve: res, reject: rej };
 
             let req = {"jsonrpc":"2.0", "id": id, "src":"wsserver", "method": method};
-            if (params) {
+            
+            if (params !== undefined) {
                 req['params'] = params;
             }
-            // console.debug("Calling:", deviceId, req);
+            
+            if (auth !== undefined) {
+                req['auth'] = auth;
+            }
+            
             webSocket.send(JSON.stringify(req));
         });
     }
@@ -240,11 +249,6 @@ class ShellyOWS {
      * @returns {Promise<*>}
      */
     async setConfig(clientId, component, config) {
-        // Since response is returned before the notification, we need to sync our local config first, so that immediate
-        // access to config would return the updated data.
-        //
-        // If you don't want that to happen, feel free to .call Component.SetConfig directly.
-
         component = component.toLowerCase();
 
         await this.call(clientId, component + ".setconfig", {'config': config});
