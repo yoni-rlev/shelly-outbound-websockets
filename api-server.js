@@ -123,6 +123,15 @@ app.post('/api/rpc', async (req, res) => {
 
   try {
     console.log(`Sending ${method} to device ${deviceId}...`);
+
+    // BTHome.StartDeviceDiscovery itself returns null on success - the actual
+    // results arrive later as async NotifyEvent pushes over the same socket
+    // (see /api/discovery/:deviceId below). Clear any previous scan's buffer
+    // right before sending, so results don't get mixed across scans.
+    if (method === 'BTHome.StartDeviceDiscovery') {
+      ows.resetDiscovery(deviceId);
+    }
+
     const result = await callWithAuth(deviceId, method, params, devicePassword);
     res.json({ success: true, result });
   } catch (err) {
@@ -156,6 +165,19 @@ app.get('/api/clients', (req, res) => {
   }
   // getClients() כבר מחזיר מערך - בלי Object.keys נוסף!
   res.json({ success: true, active_devices: ows.getClients() });
+});
+
+/* ==========================================
+   ENDPOINT 3: תוצאות סריקת BTHome (BLU) שנאספו עד כה
+   מיועד ל-polling אחרי קריאה ל-BTHome.StartDeviceDiscovery דרך /api/rpc,
+   כי התוצאות מגיעות אסינכרונית כ-NotifyEvent ולא בתשובת ה-RPC עצמה.
+========================================== */
+app.get('/api/discovery/:deviceId', (req, res) => {
+  if (!isValidSecret(req.headers['x-api-secret'], API_SECRET)) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
+
+  res.json({ success: true, ...ows.getDiscovery(req.params.deviceId) });
 });
 
 const PORT = process.env.PORT || 10000;

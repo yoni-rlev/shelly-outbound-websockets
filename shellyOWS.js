@@ -45,6 +45,7 @@ class ShellyOWS {
     _statuses = {};
     _config = {};
     _requests = {};
+    _discovery = {};
     ws = null;
 
     /**
@@ -98,6 +99,26 @@ class ShellyOWS {
                                 let config = await this.call(message.src, event.component + ".getconfig");
                                 // console.error("updated config:", config);
                                 this._config[message.src][event.component] = config;
+                            }
+                            // BTHome.StartDeviceDiscovery results are NOT part of the RPC
+                            // response - they arrive later as these two push events, so we
+                            // have to buffer them here for polling via getDiscovery().
+                            else if (event.event === "device_discovered") {
+                                let bucket = this._discovery[message.src];
+                                if (!bucket) {
+                                    bucket = this._discovery[message.src] = { devices: [], done: false, deviceCount: null, updatedAt: null };
+                                }
+                                bucket.devices.push(event);
+                                bucket.updatedAt = Date.now();
+                            }
+                            else if (event.event === "discovery_done") {
+                                let bucket = this._discovery[message.src];
+                                if (!bucket) {
+                                    bucket = this._discovery[message.src] = { devices: [], done: false, deviceCount: null, updatedAt: null };
+                                }
+                                bucket.done = true;
+                                bucket.deviceCount = event.device_count ?? bucket.devices.length;
+                                bucket.updatedAt = Date.now();
                             }
                         }
                     }
@@ -264,6 +285,29 @@ class ShellyOWS {
      */
     getClients() {
         return Object.keys(this._clients);
+    }
+
+    /**
+     * Clear the buffered BTHome discovery results for a client id. Call this
+     * right before sending a fresh BTHome.StartDeviceDiscovery, so results
+     * from a previous scan aren't mixed in with the new one.
+     *
+     * @param {string} clientId
+     */
+    resetDiscovery(clientId) {
+        this._discovery[clientId] = { devices: [], done: false, deviceCount: null, updatedAt: null };
+    }
+
+    /**
+     * Return the buffered BTHome discovery results (device_discovered /
+     * discovery_done NotifyEvents) collected for a client id since the last
+     * resetDiscovery() call.
+     *
+     * @param {string} clientId
+     * @returns {{devices: Array, done: boolean, deviceCount: number|null, updatedAt: number|null}}
+     */
+    getDiscovery(clientId) {
+        return this._discovery[clientId] || { devices: [], done: false, deviceCount: null, updatedAt: null };
     }
 }
 
