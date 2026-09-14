@@ -124,15 +124,18 @@ app.post('/api/rpc', async (req, res) => {
   try {
     console.log(`Sending ${method} to device ${deviceId}...`);
 
+    const result = await callWithAuth(deviceId, method, params, devicePassword);
+
     // BTHome.StartDeviceDiscovery itself returns null on success - the actual
     // results arrive later as async NotifyEvent pushes over the same socket
-    // (see /api/discovery/:deviceId below). Clear any previous scan's buffer
-    // right before sending, so results don't get mixed across scans.
+    // (see /api/discovery/:deviceId below). Only clear the buffer once we know
+    // a NEW scan actually started - e.g. a retry that the device rejects with
+    // "Discovery in progress" (it's already mid-scan from an earlier call)
+    // must NOT wipe out results that scan is still accumulating.
     if (method === 'BTHome.StartDeviceDiscovery') {
       ows.resetDiscovery(deviceId);
     }
 
-    const result = await callWithAuth(deviceId, method, params, devicePassword);
     res.json({ success: true, result });
   } catch (err) {
     console.error(`Error communicating with ${deviceId}:`, err && err.message ? err.message : err);
