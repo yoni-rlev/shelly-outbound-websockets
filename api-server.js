@@ -64,9 +64,9 @@ function callWithTimeout(deviceId, method, params, authObject, timeoutMs = 10000
 }
 
 // פונקציה חכמה שעוטפת את הבקשה ומטפלת בהזדהות אוטומטית
-async function callWithAuth(deviceId, method, params, devicePassword) {
+async function callWithAuth(deviceId, method, params, devicePassword, timeoutMs) {
   try {
-    return await callWithTimeout(deviceId, method, params, undefined);
+    return await callWithTimeout(deviceId, method, params, undefined, timeoutMs);
   } catch (err) {
     let authChallenge = null;
 
@@ -82,7 +82,7 @@ async function callWithAuth(deviceId, method, params, devicePassword) {
     if (authChallenge && authChallenge.nonce && devicePassword) {
       console.log(`[Auth] Generating Digest Auth for device ${deviceId}...`);
       const authObject = generateShellyAuth(devicePassword, authChallenge.realm, authChallenge.nonce);
-      return await callWithTimeout(deviceId, method, params, authObject);
+      return await callWithTimeout(deviceId, method, params, authObject, timeoutMs);
     }
 
     // אין challenge שמיש או אין סיסמה - זו שגיאה אחרת (כולל שגיאות RPC לגיטימיות כמו "already exists")
@@ -115,7 +115,7 @@ app.post('/api/rpc', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
-  const { deviceId, method, params, devicePassword } = req.body;
+  const { deviceId, method, params, devicePassword, timeoutMs } = req.body;
 
   if (!deviceId || !method) {
     return res.status(400).json({ success: false, error: 'Missing deviceId or method in request body' });
@@ -124,7 +124,7 @@ app.post('/api/rpc', async (req, res) => {
   try {
     console.log(`Sending ${method} to device ${deviceId}...`);
 
-    const result = await callWithAuth(deviceId, method, params, devicePassword);
+    const result = await callWithAuth(deviceId, method, params, devicePassword, timeoutMs);
 
     // BTHome.StartDeviceDiscovery itself returns null on success - the actual
     // results arrive later as async NotifyEvent pushes over the same socket
